@@ -1,0 +1,27 @@
+name: PoC (pull_request control)
+
+# Control experiment. A plain pull_request from a fork gets NO repository
+# secrets, and an environment gate does not change that. Expected result on
+# a fork PR: TEST_SECRET is blank, even after any approval.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  guarded:
+    environment: fork-ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Does the env gate release the secret on pull_request?
+        run: |
+          if [ -n "$SECRET" ]; then
+            echo "SECRET visible (UNEXPECTED for a fork PR)"
+          else
+            echo "secret BLANK - confirms pull_request forks get no secret even with an env gate"
+          fi
+        env:
+          SECRET: ${{ secrets.TEST_SECRET }}

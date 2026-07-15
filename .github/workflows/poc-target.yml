@@ -1,0 +1,60 @@
+name: PoC (pull_request_target)
+
+# Candidate pattern for running privileged CI on fork PRs.
+#
+# Because the trigger is pull_request_target, this workflow definition is
+# always taken from the BASE branch (a fork cannot alter it), and the job
+# runs in the base-repo context, so repository secrets and OIDC are
+# available. The "guarded" job references a protected environment, so it
+# pauses for maintainer approval before it runs the fork's code.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs immediately, base context, NO fork code checked out here.
+  # Demonstrates that secrets already exist before any approval gate, which
+  # is exactly why you must not check out or execute fork code in this job.
+  unguarded:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show context (no fork code executed)
+        run: |
+          echo "event      = ${{ github.event_name }}"
+          echo "head fork? = ${{ github.event.pull_request.head.repo.fork }}"
+          echo "head sha   = ${{ github.event.pull_request.head.sha }}"
+          if [ -n "$SECRET" ]; then
+            echo "SECRET visible PRE-approval (len ${#SECRET})"
+          else
+            echo "secret blank"
+          fi
+        env:
+          SECRET: ${{ secrets.TEST_SECRET }}
+
+  # Gated by the "fork-ci" environment (required reviewers). Only after a
+  # maintainer approves does this run, and only here do we check out and
+  # execute the fork's untrusted code, with secrets present.
+  guarded:
+    needs: unguarded
+    environment: fork-ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR HEAD (untrusted fork code)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Prove secret present, then run fork-controlled script
+        run: |
+          if [ -n "$SECRET" ]; then
+            echo "SECRET visible POST-approval (len ${#SECRET})"
+          else
+            echo "secret blank"
+          fi
+          echo "--- running ./poc.sh from the PR checkout ---"
+          bash ./poc.sh
+        env:
+          SECRET: ${{ secrets.TEST_SECRET }}
